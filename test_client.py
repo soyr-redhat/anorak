@@ -48,7 +48,7 @@ def main():
                 "Content-Type": "application/json",
             },
             json={
-                "model": "gpt-4",
+                "model": "kimi-k2-6",
                 "messages": [{"role": "user", "content": "Hello!"}],
             },
             timeout=10.0,

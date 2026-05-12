@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  anorak:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8080
+      - LOG_LEVEL=INFO
+
+      # Upstream API (change to your LLM provider)
+      - UPSTREAM_API_URL=${UPSTREAM_API_URL:-https://api.openai.com}
+
+      # Shards (from init_shards.py)
+      - SHARD_1_ENCRYPTED=${SHARD_1_ENCRYPTED}
+      - SHARD_2_ENCRYPTED=${SHARD_2_ENCRYPTED}
+      - SHARD_ENCRYPTION_KEY=${SHARD_ENCRYPTION_KEY}
+      - SHARD_3_MASTER_SECRET=${SHARD_3_MASTER_SECRET}
+      - SHARD_3_TIME_WINDOW_HOURS=${SHARD_3_TIME_WINDOW_HOURS:-24}
+
+      # Handshake
+      - HANDSHAKE_SHARED_SECRET=${HANDSHAKE_SHARED_SECRET}
+      - HANDSHAKE_TIMEOUT_SECONDS=${HANDSHAKE_TIMEOUT_SECONDS:-30}
+
+      # Rotation
+      - ROTATION_ENABLED=${ROTATION_ENABLED:-true}
+      - ROTATION_TIME_HOURS=${ROTATION_TIME_HOURS:-24}
+
+      # Redis
+      - REDIS_URL=redis://redis:6379/0
+
+      # Admin
+      - ADMIN_API_ENABLED=${ADMIN_API_ENABLED:-true}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis-data:

@@ -2,7 +2,7 @@
 
 > *"The keys to the kingdom, split and hidden in plain sight."*
 
-**Anorak** is a novel AI security tool that protects LLM API tokens from theft using split-key cryptography, cryptographic handshakes, and automatic rotation. Named after the Ready Player One character who created the ultimate key puzzle.
+**Anorak** is a security tool that protects LLM API tokens from theft using split-key cryptography, cryptographic handshakes, and automatic rotation. Named after the Ready Player One character who created the ultimate 3-key puzzle.
 
 ## Problem
 

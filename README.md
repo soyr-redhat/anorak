@@ -40,6 +40,46 @@ Client → Anorak Proxy → LLM API (OpenAI/Anthropic/vLLM/Ollama)
 - **Layer 4:** HMAC handshake per request (prevents replay attacks)
 - **Layer 5:** Token reconstruction only in memory, wiped after use
 
+## ✨ Features
+
+### Core Security
+
+- **Shamir's Secret Sharing**
+  - Split API tokens into 3 cryptographic shards
+  - Configurable threshold (default: 2-of-3 required for reconstruction)
+  - Mathematical guarantee: no single shard reveals token information
+  - Uses Mersenne prime (2^521 - 1) for large token support
+
+- **Multi-Layer Encryption**
+  - Shards encrypted at rest with Fernet (AES-128)
+  - Each shard independently encrypted
+  - Separate encryption keys for each storage location
+  - Supports key rotation without token rotation
+
+- **Time-Derived Auto-Rotation**
+  - Third shard derived using HKDF from master secret + time window
+  - Automatic rotation every 24 hours (configurable)
+  - No manual intervention required
+  - Limits breach exposure to current time window
+
+- **HMAC Challenge-Response Authentication**
+  - Per-request handshake using HMAC-SHA256
+  - Time-limited challenges (default: 30s expiry)
+  - Client never sends raw token
+  - Prevents man-in-the-middle attacks
+
+- **Replay Attack Prevention**
+  - Redis-backed challenge tracking
+  - Each challenge usable exactly once
+  - Automatic cleanup of expired challenges
+  - Real-time attack detection and logging
+
+- **Secure Memory Handling**
+  - Token reconstructed only in memory
+  - Immediate wiping after request completion
+  - No token persistence to disk or logs
+  - Garbage collection forced after use
+
 ## 🚀 Quick Start
 
 ### Prerequisites

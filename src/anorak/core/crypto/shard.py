@@ -54,9 +54,13 @@ class ShardManager:
         token_bytes = token.encode('utf-8')
         token_int = int.from_bytes(token_bytes, byteorder='big')
 
-        # Use a large prime modulus (Mersenne prime 2^521 - 1)
-        # This is large enough for most API tokens
-        modulus = 2**521 - 1
+        # Calculate modulus based on token size
+        # Modulus must be larger than token_int
+        # Use next Mersenne-like prime: 2^(bit_length + 128) - 1
+        # The +128 gives us plenty of headroom
+        bit_length = token_int.bit_length()
+        modulus_bits = bit_length + 128
+        modulus = 2**modulus_bits - 1
 
         # Use Shamir's Secret Sharing to split the token
         # shamirs.shares returns a list of share objects

@@ -1,35 +1,23 @@
-# Python
+# UV lock file
+uv.lock
+
+# Environment variables (contains secrets!)
+.env
+.env.*
+!.env.example
+
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/
-.venv
-
-# Environment variables
-.env
-.env.local
-.env.*.local
 
 # IDE
 .vscode/
@@ -42,16 +30,25 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
+*.cover
+.hypothesis/
+test_*.py
+debug_*.py
 
 # Logs
 *.log
+logs/
+/tmp/
+
+# Redis
+dump.rdb
+*.rdb
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Secrets (NEVER commit these!)
-*.key
-*.pem
-secrets/
+# Temporary files
+*.tmp
+*.bak
+*.backup

@@ -4,11 +4,11 @@
 
 **Anorak** is a novel AI security tool that protects LLM API tokens from theft using split-key cryptography, cryptographic handshakes, and automatic rotation. Named after the Ready Player One character who created the ultimate key puzzle.
 
-## 🎯 Problem
+## Problem
 
 API token theft is rampant and can cost thousands overnight. Traditional approaches store tokens in environment variables or secrets managers, but a single compromise exposes everything.
 
-## 💡 Solution
+## Solution
 
 Anorak uses **multi-layered defense**:
 
@@ -21,7 +21,7 @@ Anorak uses **multi-layered defense**:
 
 **Result:** Even if an attacker compromises your environment, they need multiple independent systems AND the correct time window to reconstruct your token.
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Client → Anorak Proxy → LLM API (OpenAI/Anthropic/vLLM/Ollama)
@@ -40,7 +40,7 @@ Client → Anorak Proxy → LLM API (OpenAI/Anthropic/vLLM/Ollama)
 - **Layer 4:** HMAC handshake per request (prevents replay attacks)
 - **Layer 5:** Token reconstruction only in memory, wiped after use
 
-## ✨ Features
+## Features
 
 ### Core Security
 
@@ -80,7 +80,7 @@ Client → Anorak Proxy → LLM API (OpenAI/Anthropic/vLLM/Ollama)
   - No token persistence to disk or logs
   - Garbage collection forced after use
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -158,7 +158,7 @@ python -m anorak.main
 uvicorn anorak.main:app --host 0.0.0.0 --port 8080
 ```
 
-## 📖 Usage
+## Usage
 
 ### Client Authentication
 
@@ -273,7 +273,7 @@ UPSTREAM_API_URL=http://localhost:8000
 UPSTREAM_API_URL=https://your-llm-api.com
 ```
 
-## 🔐 Admin API
+## Admin API
 
 View metrics and trigger rotation:
 
@@ -293,7 +293,7 @@ curl -X POST http://localhost:8080/admin/rotate \
   -d '{"reason": "security-review"}'
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Install dev dependencies
@@ -309,7 +309,7 @@ pytest --cov=anorak --cov-report=html
 pytest tests/test_crypto.py -v
 ```
 
-## 🔧 Development
+## Development
 
 ```bash
 # Format code
@@ -322,7 +322,7 @@ ruff check src/ tests/
 mypy src/
 ```
 
-## 📊 How It Works
+## How It Works
 
 ### Shard Storage Strategy
 
@@ -363,7 +363,7 @@ Stream response → Client
 Wipe token from memory
 ```
 
-## 🛣️ Roadmap
+## Roadmap
 
 - [x] Core crypto (Shamir, HKDF, Fernet)
 - [x] HMAC handshake protocol
@@ -378,21 +378,21 @@ Wipe token from memory
 - [ ] Kubernetes deployment
 - [ ] Prometheus metrics export
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please open an issue first to discuss changes.
 
-## 📄 License
+## License
 
 MIT
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **Shamir's Secret Sharing** - Adi Shamir (1979)
 - **HKDF** - RFC 5869
 - **Ready Player One** - Ernest Cline (inspiration for the name)
 
-## 🔗 References
+## References
 
 - [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
 - [HMAC](https://en.wikipedia.org/wiki/HMAC)

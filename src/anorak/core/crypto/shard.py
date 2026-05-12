@@ -117,6 +117,10 @@ class ShardManager:
         token_bytes = token_int.to_bytes(byte_length, byteorder='big')
         token = token_bytes.decode('utf-8')
 
+        # Remove ALL whitespace characters (newlines, spaces, tabs, etc.)
+        # JWT tokens should not have any whitespace
+        token = ''.join(token.split())
+
         return token
 
     def wipe_memory(self, sensitive_str: str) -> None:

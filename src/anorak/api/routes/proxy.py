@@ -44,8 +44,8 @@ async def proxy_to_upstream(request: Request, path: str):
     if not _proxy:
         raise RuntimeError("Proxy not initialized")
 
-    # Reconstruct token from shards
-    token = reconstruct_api_token()
+    # Reconstruct token from shards (from Redis or env)
+    token = await reconstruct_api_token()
 
     logger.info("Proxying request", method=request.method, path=f"/v1/{path}")
 

@@ -24,29 +24,35 @@ class AnorakSettings(BaseSettings):
         ...,
         description="Upstream LLM API URL (e.g., https://api.openai.com, http://localhost:11434)",
     )
+    UPSTREAM_API_TOKEN: SecretStr = Field(
+        ..., description="Upstream API token (for rotation - not used for requests)"
+    )
 
     # Shard configuration (encrypted at rest)
     SHARD_1_ENCRYPTED: SecretStr = Field(
-        ..., description="First encrypted shard (Fernet encrypted)"
+        ..., description="First encrypted shard (Fernet encrypted with static key)"
     )
     SHARD_2_ENCRYPTED: SecretStr = Field(
-        ..., description="Second encrypted shard (Fernet encrypted)"
+        ..., description="Second encrypted shard (Fernet encrypted with static key)"
+    )
+    SHARD_3_ENCRYPTED: SecretStr = Field(
+        ..., description="Third encrypted shard (Fernet encrypted with time-derived key)"
     )
     SHARD_ENCRYPTION_KEY: SecretStr = Field(
-        ..., description="Fernet key for shard encryption"
+        ..., description="Fernet key for shards 1 and 2 encryption"
     )
 
-    # Time-derived shard configuration
+    # Time-derived encryption configuration for shard 3
     SHARD_3_MASTER_SECRET: SecretStr = Field(
-        ..., description="Master secret for time-derived shard (HKDF)"
+        ..., description="Master secret for deriving shard 3 encryption key (HKDF)"
     )
     SHARD_3_TIME_WINDOW_HOURS: int = Field(
-        default=24, description="Time window for shard 3 rotation (hours)"
+        default=24, description="Time window for shard 3 encryption key rotation (hours)"
     )
 
     # Shamir's Secret Sharing parameters
     SHARD_THRESHOLD: int = Field(
-        default=2, description="Minimum shards required to reconstruct token"
+        default=3, description="Minimum shards required to reconstruct token (3/3 for maximum security)"
     )
     SHARD_TOTAL: int = Field(default=3, description="Total number of shards")
 

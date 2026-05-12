@@ -52,18 +52,14 @@ class ShardManager:
         """
         # Convert token to integer (bytes -> int)
         token_bytes = token.encode('utf-8')
+        original_length = len(token_bytes)  # Store original length
         token_int = int.from_bytes(token_bytes, byteorder='big')
 
-        # Calculate modulus based on token size
-        # Modulus must be larger than token_int
-        # Use next Mersenne-like prime: 2^(bit_length + 128) - 1
-        # The +128 gives us plenty of headroom
-        bit_length = token_int.bit_length()
-        modulus_bits = bit_length + 128
-        modulus = 2**modulus_bits - 1
-
         # Use Shamir's Secret Sharing to split the token
-        # shamirs.shares returns a list of share objects
+        # Use a large Mersenne prime as modulus (2^19937 - 1 is a known Mersenne prime)
+        # This is large enough for any realistic API token
+        modulus = 2**19937 - 1
+
         share_objects = shamirs.shares(
             token_int, self.total_shards, modulus=modulus, threshold=self.threshold
         )
@@ -72,7 +68,8 @@ class ShardManager:
         for idx, share_obj in enumerate(share_objects, start=1):
             # Convert share to hex string for storage
             # Share objects have index, value, and modulus attributes
-            shard_hex = f"{share_obj.index:x}:{share_obj.value:x}:{share_obj.modulus:x}"
+            # IMPORTANT: Include original_length so we can reconstruct properly
+            shard_hex = f"{share_obj.index:x}:{share_obj.value:x}:{share_obj.modulus:x}:{original_length:x}"
             shard_objects.append(ShardData(shard_id=idx, shard_value=shard_hex))
 
         return shard_objects
@@ -96,24 +93,35 @@ class ShardManager:
             )
 
         # Convert hex shards back to share objects
-        # Parse "index:value:modulus" format and create share objects
+        # Parse "index:value:modulus:original_length" format and create share objects
         share_objects = []
+        original_length = None
+        modulus = None
         for shard in shards[: self.threshold]:
             parts = shard.shard_value.split(":")
             index = int(parts[0], 16)
             value = int(parts[1], 16)
-            modulus = int(parts[2], 16)
+            shard_modulus = int(parts[2], 16)
+            if modulus is None:
+                modulus = shard_modulus
+            # Original length is in the 4th field (if present, for backwards compatibility)
+            if len(parts) >= 4:
+                original_length = int(parts[3], 16)
             # Create share object (shamirs library uses share class)
             from shamirs import share
-            share_obj = share(index, value, modulus)
+            share_obj = share(index, value, shard_modulus)
             share_objects.append(share_obj)
 
-        # Reconstruct using Shamir's Secret Sharing
-        token_int = shamirs.interpolate(share_objects)
+        # Reconstruct using Shamir's Secret Sharing with modulus
+        token_int = shamirs.interpolate(share_objects, modulus=modulus, threshold=self.threshold)
 
         # Convert integer back to bytes, then to string
-        # Calculate byte length (may vary depending on token length)
-        byte_length = (token_int.bit_length() + 7) // 8
+        # Use original_length if available, otherwise calculate
+        if original_length:
+            byte_length = original_length
+        else:
+            byte_length = (token_int.bit_length() + 7) // 8
+
         token_bytes = token_int.to_bytes(byte_length, byteorder='big')
         token = token_bytes.decode('utf-8')
 
@@ -222,10 +230,11 @@ class ShardStorage:
 def reconstruct_token_from_env(
     shard1_encrypted: str,
     shard2_encrypted: str,
+    shard3_encrypted: str,
     shard3_master_secret: str,
     encryption_key: str,
     time_window_hours: int = 24,
-    threshold: int = 2,
+    threshold: int = 3,
     total_shards: int = 3,
 ) -> str:
     """
@@ -234,22 +243,51 @@ def reconstruct_token_from_env(
     Args:
         shard1_encrypted: Encrypted shard 1 (from env)
         shard2_encrypted: Encrypted shard 2 (from env)
-        shard3_master_secret: Master secret for time-derived shard 3
-        encryption_key: Fernet key
-        time_window_hours: Time window for shard 3
-        threshold: Shamir threshold
+        shard3_encrypted: Encrypted shard 3 (from env) - encrypted with time-derived key
+        shard3_master_secret: Master secret for deriving shard 3 encryption key
+        encryption_key: Fernet key for shards 1 and 2
+        time_window_hours: Time window for shard 3 encryption key
+        threshold: Shamir threshold (default 3/3)
         total_shards: Total Shamir shards
 
     Returns:
         Reconstructed API token
+
+    Raises:
+        Exception: If shard 3 can't be decrypted (time window expired)
     """
-    # Decrypt static shards
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    import base64
+
+    # Decrypt static shards (1 and 2)
     storage = ShardStorage(encryption_key)
     shard1 = storage.load_encrypted_shard(shard1_encrypted)
     shard2 = storage.load_encrypted_shard(shard2_encrypted)
 
-    # Derive time-based shard
-    shard3 = derive_time_shard(shard3_master_secret, time_window_hours)
+    # Derive time-based encryption key for shard 3
+    now = datetime.datetime.utcnow()
+    window_id = int(now.timestamp() // (time_window_hours * 3600))
+    time_info = f"anorak-shard3-encrypt-{window_id}".encode()
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=time_info,
+    )
+    time_key_bytes = hkdf.derive(shard3_master_secret.encode())
+    time_encryption_key = base64.urlsafe_b64encode(time_key_bytes).decode()
+
+    # Decrypt shard 3 with time-derived key
+    try:
+        time_storage = ShardStorage(time_encryption_key)
+        shard3 = time_storage.load_encrypted_shard(shard3_encrypted)
+    except Exception as e:
+        raise Exception(
+            f"Failed to decrypt shard 3 - time window may have expired. "
+            f"Current window: {window_id}. Error: {e}"
+        )
 
     # Create ShardData objects
     shards = [
@@ -258,7 +296,7 @@ def reconstruct_token_from_env(
         ShardData(shard_id=3, shard_value=shard3),
     ]
 
-    # Reconstruct token
+    # Reconstruct token (need all 3 shards with threshold 3/3)
     manager = ShardManager(threshold=threshold, total_shards=total_shards)
     token = manager.reconstruct_token(shards)
 

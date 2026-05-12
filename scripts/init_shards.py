@@ -71,42 +71,74 @@ def main():
 
     print(f"\nInitializing {args.total} shards (threshold: {args.threshold})...\n")
 
-    # Generate encryption key
-    encryption_key = EncryptionManager.generate_key()
-    print("Generated encryption key")
+    # Generate static encryption key (for shards 1 and 2)
+    static_encryption_key = EncryptionManager.generate_key()
+    print("Generated static encryption key (for shards 1 and 2)")
 
-    # Generate master secret for time-derived shard
+    # Generate master secret for time-derived encryption (for shard 3)
     master_secret = generate_master_secret()
-    print("Generated master secret for time-derived shard")
+    print("Generated master secret for time-derived encryption (for shard 3)")
 
-    # Split token into shards
-    manager = ShardManager(threshold=args.threshold, total_shards=args.total)
+    # Split token into shards (threshold 3/3 - need ALL shards)
+    manager = ShardManager(threshold=3, total_shards=3)
     shards = manager.split_token(token)
-    print(f"Split token into {len(shards)} shards")
+    print(f"Split token into {len(shards)} shards (threshold: 3/3)\n")
 
-    # Encrypt shards
-    encryptor = EncryptionManager(encryption_key)
-    encrypted_shards = []
-    for shard in shards:
-        encrypted = encryptor.encrypt(shard.shard_value)
-        encrypted_shards.append(encrypted)
+    # Encrypt shards 1 and 2 with static key
+    static_encryptor = EncryptionManager(static_encryption_key)
+    shard1_encrypted = static_encryptor.encrypt(shards[0].shard_value)
+    shard2_encrypted = static_encryptor.encrypt(shards[1].shard_value)
+    print("Encrypted shards 1 and 2 with static key")
 
-    print("Encrypted shards\n")
+    # Derive time-based encryption key for shard 3
+    from anorak.core.crypto.shard import derive_time_shard
+    import datetime
+
+    # Use current time to derive encryption key for shard 3
+    now = datetime.datetime.utcnow()
+    window_id = int(now.timestamp() // (24 * 3600))  # 24-hour window
+    time_info = f"anorak-shard3-encrypt-{window_id}".encode()
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.backends import default_backend
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=time_info,
+        backend=default_backend()
+    )
+    time_key_bytes = hkdf.derive(master_secret.encode())
+
+    # Convert to Fernet-compatible key (base64 encoded)
+    import base64
+    time_encryption_key = base64.urlsafe_b64encode(time_key_bytes).decode()
+
+    # Encrypt shard 3 with time-derived key
+    time_encryptor = EncryptionManager(time_encryption_key)
+    shard3_encrypted = time_encryptor.encrypt(shards[2].shard_value)
+    print(f"Encrypted shard 3 with time-derived key (window: {window_id})\n")
 
     # Output configuration
     print("=" * 80)
-    print("Anorak Shard Configuration")
+    print("Anorak Shard Configuration (Threshold 3/3)")
     print("=" * 80)
     print("\nAdd these to your .env file:\n")
 
-    print(f"SHARD_1_ENCRYPTED={encrypted_shards[0]}")
-    print(f"SHARD_2_ENCRYPTED={encrypted_shards[1]}")
-    print(f"SHARD_ENCRYPTION_KEY={encryption_key}")
+    print(f"SHARD_1_ENCRYPTED={shard1_encrypted}")
+    print(f"SHARD_2_ENCRYPTED={shard2_encrypted}")
+    print(f"SHARD_3_ENCRYPTED={shard3_encrypted}")
+    print(f"SHARD_ENCRYPTION_KEY={static_encryption_key}")
     print(f"SHARD_3_MASTER_SECRET={master_secret}")
 
     print("\n" + "=" * 80)
-    print("\nShard 3 is time-derived and rotates automatically every 24 hours.")
-    print("Keep these values secure and never commit them to version control!")
+    print("\n⚠️  IMPORTANT: Threshold is 3/3 - ALL shards required!")
+    print(f"   Shard 3 encryption key rotates every 24 hours.")
+    print(f"   After rotation, you MUST re-run this script to generate new shards.")
+    print(f"   Current time window: {window_id}")
+    print("\nKeep these values secure and never commit them to version control!")
     print("\n" + "=" * 80)
 
 

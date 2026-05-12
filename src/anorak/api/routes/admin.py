@@ -1,5 +1,6 @@
 """Admin API endpoints for management and monitoring."""
 
+from typing import Optional
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
@@ -7,19 +8,27 @@ from anorak.config.settings import settings
 from anorak.exceptions.exceptions import AdminException, AnorakErrorCode
 from anorak.utils.logger import get_logger
 from anorak.utils.metrics import MetricsTracker
+from anorak.core.rotation.engine import RotationEngine
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
-# Global metrics tracker (injected at startup)
+# Global metrics tracker and rotation engine (injected at startup)
 _metrics_tracker: MetricsTracker = None
+_rotation_engine: RotationEngine = None
 
 
 def set_metrics_tracker(tracker: MetricsTracker):
     """Set the global metrics tracker."""
     global _metrics_tracker
     _metrics_tracker = tracker
+
+
+def set_rotation_engine(engine: RotationEngine):
+    """Set the global rotation engine."""
+    global _rotation_engine
+    _rotation_engine = engine
 
 
 class ShardStatusResponse(BaseModel):
@@ -49,6 +58,23 @@ class RotationResponse(BaseModel):
 
     success: bool
     message: str
+    window_id: Optional[int] = None
+    expires_at: Optional[str] = None
+    time_until_expiry_hours: Optional[float] = None
+
+
+class RotationStatusResponse(BaseModel):
+    """Rotation status response."""
+
+    shards_in_redis: bool
+    rotation_required: bool
+    rotation_reason: str = ""
+    current_window_id: Optional[int] = None
+    created_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    time_until_expiry_seconds: Optional[float] = None
+    time_until_expiry_hours: Optional[float] = None
+    message: str = ""
 
 
 def validate_admin_key(api_key: str):
@@ -117,6 +143,41 @@ async def get_metrics(api_key: str = Header(..., alias="X-Admin-Key")):
     )
 
 
+@router.get("/admin/rotation/status", response_model=RotationStatusResponse)
+async def get_rotation_status(api_key: str = Header(..., alias="X-Admin-Key")):
+    """
+    Get current rotation status.
+
+    Args:
+        api_key: Admin API key from header
+
+    Returns:
+        Rotation status including time until expiry
+    """
+    validate_admin_key(api_key)
+
+    if not _rotation_engine:
+        return RotationStatusResponse(
+            shards_in_redis=False,
+            rotation_required=False,
+            message="Rotation engine not initialized",
+        )
+
+    status = await _rotation_engine.get_status()
+
+    return RotationStatusResponse(
+        shards_in_redis=status.get("shards_in_redis", False),
+        rotation_required=status.get("rotation_required", False),
+        rotation_reason=status.get("rotation_reason", ""),
+        current_window_id=status.get("current_window_id"),
+        created_at=status.get("created_at"),
+        expires_at=status.get("expires_at"),
+        time_until_expiry_seconds=status.get("time_until_expiry_seconds"),
+        time_until_expiry_hours=status.get("time_until_expiry_hours"),
+        message=status.get("message", ""),
+    )
+
+
 @router.post("/admin/rotate", response_model=RotationResponse)
 async def trigger_rotation(
     rotation_request: RotationRequest,
@@ -125,25 +186,41 @@ async def trigger_rotation(
     """
     Manually trigger token rotation.
 
-    NOTE: For MVP, this endpoint returns instructions for manual rotation.
-    In production, this would orchestrate automatic rotation.
+    This endpoint regenerates shards from UPSTREAM_API_TOKEN and stores them in Redis.
 
     Args:
         rotation_request: Rotation request with reason
         api_key: Admin API key from header
 
     Returns:
-        Rotation result
+        Rotation result with new window metadata
     """
     validate_admin_key(api_key)
 
+    if not _rotation_engine:
+        raise AdminException(
+            AnorakErrorCode.ADMIN_API_DISABLED,
+            detail="Rotation engine not initialized",
+        )
+
     logger.info("Manual rotation requested", reason=rotation_request.reason)
 
-    # For MVP, rotation is manual - provide instructions
-    return RotationResponse(
-        success=True,
-        message=(
-            "Manual rotation: Generate new token, run scripts/init_shards.py "
-            "with new token, update environment variables, restart service"
-        ),
-    )
+    try:
+        # Read token from settings
+        token = settings.UPSTREAM_API_TOKEN.get_secret_value()
+
+        result = await _rotation_engine.rotate_token(token)
+
+        return RotationResponse(
+            success=result["success"],
+            message="Token rotation completed successfully",
+            window_id=result["window_id"],
+            expires_at=result["expires_at"],
+            time_until_expiry_hours=result["time_until_expiry_hours"],
+        )
+    except Exception as e:
+        logger.error("Rotation failed", error=str(e))
+        raise AdminException(
+            AnorakErrorCode.SHARD_RECONSTRUCTION_FAILED,
+            detail=f"Rotation failed: {str(e)}",
+        )

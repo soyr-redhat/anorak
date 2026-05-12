@@ -9,7 +9,9 @@ from fastapi.responses import JSONResponse
 from anorak.api.routes import admin, health, proxy
 from anorak.config.settings import settings
 from anorak.core.crypto.handshake import create_handshake_manager
-from anorak.core.proxy.middleware import AnorakProxyMiddleware
+from anorak.core.crypto.redis_storage import RedisShardStorage
+from anorak.core.rotation.engine import RotationEngine
+from anorak.core.proxy.middleware import AnorakProxyMiddleware, set_redis_storage
 from anorak.core.proxy.passthrough import ProxyPassthrough
 from anorak.exceptions.exceptions import AnorakException
 from anorak.utils.logger import configure_logging, get_logger
@@ -25,12 +27,14 @@ _proxy_passthrough: ProxyPassthrough = None
 _redis_client: aioredis.Redis = None
 _handshake_manager = None
 _metrics_tracker = None
+_redis_storage: RedisShardStorage = None
+_rotation_engine: RotationEngine = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
-    global _proxy_passthrough, _redis_client, _handshake_manager, _metrics_tracker
+    global _proxy_passthrough, _redis_client, _handshake_manager, _metrics_tracker, _redis_storage, _rotation_engine
 
     logger.info("Starting Anorak proxy server")
 
@@ -59,6 +63,24 @@ async def lifespan(app: FastAPI):
     admin.set_metrics_tracker(_metrics_tracker)
     logger.info("Metrics tracker initialized")
 
+    # Initialize Redis shard storage (if Redis available)
+    if _redis_client and settings.ROTATION_ENABLED:
+        _redis_storage = RedisShardStorage(_redis_client)
+        set_redis_storage(_redis_storage)
+        logger.info("Redis shard storage initialized")
+
+        # Initialize rotation engine
+        _rotation_engine = RotationEngine(
+            redis_storage=_redis_storage,
+            check_interval_minutes=60,  # Check every hour
+            time_window_hours=settings.SHARD_3_TIME_WINDOW_HOURS,
+        )
+        admin.set_rotation_engine(_rotation_engine)
+        await _rotation_engine.start()
+        logger.info("Rotation engine started")
+    else:
+        logger.info("Rotation engine disabled (Redis unavailable or rotation disabled)")
+
     # Initialize proxy passthrough
     _proxy_passthrough = ProxyPassthrough(
         upstream_url=settings.UPSTREAM_API_URL, timeout=300
@@ -70,6 +92,9 @@ async def lifespan(app: FastAPI):
 
     # Cleanup
     logger.info("Shutting down Anorak proxy server")
+
+    if _rotation_engine:
+        await _rotation_engine.stop()
 
     if _proxy_passthrough:
         await _proxy_passthrough.close()

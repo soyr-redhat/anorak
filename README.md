@@ -1,9 +1,9 @@
 # Anorak
 
-> *Three hidden keys open three secret gates*
-> *Wherein the errant will be tested for worthy traits*
->*And those with the skill to survive these straits*
->*Will reach The End where the prize awaits”*
+> *Three hidden keys open three secret gates* \
+> *Wherein the errant will be tested for worthy traits* \
+>*And those with the skill to survive these straits* \
+>*Will reach The End where the prize awaits”* \
 
 **Anorak** is a security tool that protects LLM API tokens from theft using split-key cryptography, cryptographic handshakes, and automatic rotation. Named after the Ready Player One character who created the ultimate 3-key puzzle.
 

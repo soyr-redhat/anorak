@@ -1,5 +1,6 @@
 """Configuration settings for Anorak proxy using Pydantic BaseSettings."""
 
+from typing import Optional
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,18 +29,18 @@ class AnorakSettings(BaseSettings):
         ..., description="Upstream API token (for rotation - not used for requests)"
     )
 
-    # Shard configuration (encrypted at rest)
-    SHARD_1_ENCRYPTED: SecretStr = Field(
-        ..., description="First encrypted shard (Fernet encrypted with static key)"
+    # Shard configuration (encrypted at rest) - OPTIONAL, only used as fallback if Redis unavailable
+    SHARD_1_ENCRYPTED: Optional[SecretStr] = Field(
+        default=None, description="First encrypted shard (Fernet encrypted with static key) - fallback only"
     )
-    SHARD_2_ENCRYPTED: SecretStr = Field(
-        ..., description="Second encrypted shard (Fernet encrypted with static key)"
+    SHARD_2_ENCRYPTED: Optional[SecretStr] = Field(
+        default=None, description="Second encrypted shard (Fernet encrypted with static key) - fallback only"
     )
-    SHARD_3_ENCRYPTED: SecretStr = Field(
-        ..., description="Third encrypted shard (Fernet encrypted with time-derived key)"
+    SHARD_3_ENCRYPTED: Optional[SecretStr] = Field(
+        default=None, description="Third encrypted shard (Fernet encrypted with time-derived key) - fallback only"
     )
-    SHARD_ENCRYPTION_KEY: SecretStr = Field(
-        ..., description="Fernet key for shards 1 and 2 encryption"
+    SHARD_ENCRYPTION_KEY: Optional[SecretStr] = Field(
+        default=None, description="Fernet key for shards 1 and 2 encryption - fallback only"
     )
 
     # Time-derived encryption configuration for shard 3
@@ -62,18 +63,6 @@ class AnorakSettings(BaseSettings):
     )
     HANDSHAKE_TIMEOUT_SECONDS: int = Field(
         default=30, description="Challenge timeout in seconds"
-    )
-
-    # Rotation configuration
-    ROTATION_ENABLED: bool = Field(default=True, description="Enable automatic rotation")
-    ROTATION_TIME_HOURS: int = Field(
-        default=24, description="Time-based rotation interval (hours)"
-    )
-    ROTATION_REQUEST_THRESHOLD: int = Field(
-        default=10000, description="Request count threshold for rotation"
-    )
-    ROTATION_GRACE_PERIOD_MINUTES: int = Field(
-        default=5, description="Grace period for old token after rotation (minutes)"
     )
 
     # Redis configuration

@@ -1,0 +1,268 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anorak-secrets
+  namespace: user-sbowerma
+type: Opaque
+stringData:
+  UPSTREAM_API_TOKEN: "eyJhbGciOiJSUzI1NiIsImtpZCI6IkR6VV9LdVBEQVB5SlY2ZTBtWTlGLTMwd1MyVHZlbHc5R0dpRlhzSDFRQTgifQ.eyJhdWQiOlsibWFhcy1kZWZhdWx0LWdhdGV3YXktc2EiXSwiZXhwIjoxODA3ODMxODI4LCJpYXQiOjE3NzYyOTU4MjgsImlzcyI6Imh0dHBzOi8va3ViZXJuZXRlcy5kZWZhdWx0LnN2YyIsImp0aSI6IjJiNDNjMjIxLTUwMGMtNGZiMC04M2IyLThjOGQ3MDZiZDcyYSIsImt1YmVybmV0ZXMuaW8iOnsibmFtZXNwYWNlIjoibWFhcy1kZWZhdWx0LWdhdGV3YXktdGllci1lbnRlcnByaXNlIiwic2VydmljZWFjY291bnQiOnsibmFtZSI6InN5c3RlbS1zZXJ2aWNlYWNjb3VudC1tYWFzLWRlZmF1bHQtZ2F0ZXdheS10aWVyLWVudGVycC1jNzBiMGQxOSIsInVpZCI6IjJmMDZjMGY5LThjODUtNDA3NS1iNjY1LTVhNzliMTI4ZGExZCJ9fSwibmJmIjoxNzc2Mjk1ODI4LCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6bWFhcy1kZWZhdWx0LWdhdGV3YXktdGllci1lbnRlcnByaXNlOnN5c3RlbS1zZXJ2aWNlYWNjb3VudC1tYWFzLWRlZmF1bHQtZ2F0ZXdheS10aWVyLWVudGVycC1jNzBiMGQxOSJ9.TpsGadQNdQQrCTdZ3l1O_LRSVhUzIeevpc-JUW_9vEm0W3odOqOHZaFhG-mjTDCwoyTs20Gdzg5K_x921Xzng9JEKxGVf1HofZ-olg_2Tg6vSjJTDK2tWM9C1yXYG-vD2lwQdrTqGGyROIM5ep4waGSWRGdtw4Nkj6uOY8B0xxmg70KBAo47tzqkpMyVQav_QkK4zU0OZCxj1AF4JgJ3Sxd1N7wwuHVrTH858gEd7Uw1uj3lwvSqGGPoFeBuXn_f0VagrBjdMqfMH700uCQwheQCY5oNa-vo6etHZNFV10TtAgR-yHYyRJDTytdw1uftbxyKqtBW6cZOPJ3eF1I7m1UFqhE7Ihm5Oa2X9kBC_8FglSE44tTjmDlJlIcJOwx826p6acpKARsUiM6cYirbd-5IzsQSKbNrnLRb1wUxy_lj6QuO2CFhbM_Q5DjXIBuEUaMJikkpcUncpxxWBeGuOUKiP7MTwOS_STgSbAGLwg6yfmqBeIWJptdjbBVLaqSEbVkbQe_2N4VVi3_BoWAL_-Jp_eakY8bxvrZTkPEHXfGP8fJV6q6xDfo1RDEGamiTNtWF0ZorhvTYaQNxObH8gZXURqIJsN-dxIfF5WImjaW2_v-_MIyKB-BFzvh6BASlChlOjtGADhsg1bURvb0BM4Pj2pSvhZ7Mrj-s7kZlJvs"
+  SHARD_3_MASTER_SECRET: "generate-new-secret-in-production"
+  HANDSHAKE_SHARED_SECRET: "demo-shared-secret-key-12345"
+  ADMIN_API_KEY: "generate-strong-admin-key-for-production"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anorak-config
+  namespace: user-sbowerma
+data:
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  LOG_LEVEL: "INFO"
+  UPSTREAM_API_URL: "https://maas.apps.ocp.cloud.rhai-tmm.dev/prelude-maas/kimi-k2-6"
+  SHARD_3_TIME_WINDOW_HOURS: "24"
+  SHARD_THRESHOLD: "3"
+  SHARD_TOTAL: "3"
+  HANDSHAKE_TIMEOUT_SECONDS: "30"
+  ROTATION_ENABLED: "true"
+  ROTATION_TIME_HOURS: "24"
+  ROTATION_REQUEST_THRESHOLD: "10000"
+  ROTATION_GRACE_PERIOD_MINUTES: "5"
+  REDIS_URL: "redis://anorak-redis:6379/0"
+  ADMIN_API_ENABLED: "true"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anorak-redis
+  namespace: user-sbowerma
+  labels:
+    app: anorak
+    component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anorak
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: anorak
+        component: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anorak-redis
+  namespace: user-sbowerma
+  labels:
+    app: anorak
+    component: redis
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  selector:
+    app: anorak
+    component: redis
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anorak
+  namespace: user-sbowerma
+  labels:
+    app: anorak
+    component: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anorak
+      component: proxy
+  template:
+    metadata:
+      labels:
+        app: anorak
+        component: proxy
+    spec:
+      containers:
+      - name: anorak
+        image: image-registry.openshift-image-registry.svc:5000/user-sbowerma/anorak:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: HOST
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: HOST
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: PORT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: LOG_LEVEL
+        - name: UPSTREAM_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: UPSTREAM_API_URL
+        - name: UPSTREAM_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: anorak-secrets
+              key: UPSTREAM_API_TOKEN
+        - name: SHARD_3_MASTER_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: anorak-secrets
+              key: SHARD_3_MASTER_SECRET
+        - name: SHARD_3_TIME_WINDOW_HOURS
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: SHARD_3_TIME_WINDOW_HOURS
+        - name: SHARD_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: SHARD_THRESHOLD
+        - name: SHARD_TOTAL
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: SHARD_TOTAL
+        - name: HANDSHAKE_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: anorak-secrets
+              key: HANDSHAKE_SHARED_SECRET
+        - name: HANDSHAKE_TIMEOUT_SECONDS
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: HANDSHAKE_TIMEOUT_SECONDS
+        - name: ROTATION_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: ROTATION_ENABLED
+        - name: ROTATION_TIME_HOURS
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: ROTATION_TIME_HOURS
+        - name: ROTATION_REQUEST_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: ROTATION_REQUEST_THRESHOLD
+        - name: ROTATION_GRACE_PERIOD_MINUTES
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: ROTATION_GRACE_PERIOD_MINUTES
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: REDIS_URL
+        - name: ADMIN_API_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: anorak-config
+              key: ADMIN_API_ENABLED
+        - name: ADMIN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anorak-secrets
+              key: ADMIN_API_KEY
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anorak
+  namespace: user-sbowerma
+  labels:
+    app: anorak
+    component: proxy
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: anorak
+    component: proxy
+
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: anorak
+  namespace: user-sbowerma
+  labels:
+    app: anorak
+    component: proxy
+spec:
+  to:
+    kind: Service
+    name: anorak
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

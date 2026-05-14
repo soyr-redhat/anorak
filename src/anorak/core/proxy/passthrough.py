@@ -62,16 +62,12 @@ class ProxyPassthrough:
         # Build headers (forward most headers, inject token)
         headers = dict(request.headers)
 
-        # Remove hop-by-hop headers
-        for header in ["host", "connection", "x-client-id", "x-response"]:
+        # Remove hop-by-hop headers and authentication headers (we inject our own)
+        for header in ["host", "connection", "x-client-id", "x-response", "authorization"]:
             headers.pop(header, None)
 
-        # Inject API token (provider-specific header handling)
-        # Try common patterns
-        if "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {token}"
-        if "x-api-key" not in headers:
-            headers["x-api-key"] = token
+        # Inject reconstructed API token
+        headers["Authorization"] = f"Bearer {token}"
 
         # Add additional headers
         if additional_headers:
@@ -95,13 +91,25 @@ class ProxyPassthrough:
                 params=request.query_params,
             )
 
-            # Create response
-            return Response(
+            # Log response before creating it
+            logger.info(
+                "Creating response",
+                status=upstream_response.status_code,
+                content_length=len(upstream_response.content),
+            )
+
+            # Create response - remove background task for now
+            response = Response(
                 content=upstream_response.content,
                 status_code=upstream_response.status_code,
                 headers=dict(upstream_response.headers),
-                background=BackgroundTask(self._log_response, upstream_response),
             )
+
+            # Log response details
+            self._log_response_sync(upstream_response)
+
+            logger.info("Returning response to client")
+            return response
 
         except httpx.TimeoutException as e:
             logger.error("Upstream timeout", error=str(e), url=url)
@@ -144,13 +152,12 @@ class ProxyPassthrough:
         # Build headers
         headers = dict(request.headers)
 
-        # Remove hop-by-hop headers
-        for header in ["host", "connection", "x-client-id", "x-response"]:
+        # Remove hop-by-hop headers and authentication headers (we inject our own)
+        for header in ["host", "connection", "x-client-id", "x-response", "authorization"]:
             headers.pop(header, None)
 
         # Inject API token
-        if "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {token}"
+        headers["Authorization"] = f"Bearer {token}"
         if "x-api-key" not in headers:
             headers["x-api-key"] = token
 
@@ -189,10 +196,14 @@ class ProxyPassthrough:
                 detail=f"Upstream API error: {str(e)}",
             )
 
-    async def _log_response(self, response: httpx.Response) -> None:
-        """Log upstream response details."""
+    def _log_response_sync(self, response: httpx.Response) -> None:
+        """Log upstream response details (synchronous)."""
         logger.info(
             "Upstream response",
             status_code=response.status_code,
             headers=dict(response.headers),
         )
+
+    async def _log_response(self, response: httpx.Response) -> None:
+        """Log upstream response details."""
+        self._log_response_sync(response)

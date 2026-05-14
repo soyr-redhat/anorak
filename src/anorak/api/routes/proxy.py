@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from anorak.core.proxy.middleware import reconstruct_api_token
+from anorak.core.proxy.middleware import reconstruct_maas_token
 from anorak.core.proxy.passthrough import ProxyPassthrough
 from anorak.core.proxy.streaming import stream_response
 from anorak.utils.logger import get_logger
@@ -41,18 +41,24 @@ async def proxy_to_upstream(request: Request, path: str):
     Returns:
         Proxied response from upstream API
     """
+    logger.info("Proxy route called", path=f"/v1/{path}")
+
     if not _proxy:
         raise RuntimeError("Proxy not initialized")
 
-    # Reconstruct token from shards (from Redis or env)
-    token = await reconstruct_api_token()
+    logger.info("About to reconstruct MaaS token")
+    # Reconstruct MaaS token from shards (from Redis or env)
+    token = await reconstruct_maas_token()
+    logger.info("MaaS token reconstructed")
 
     logger.info("Proxying request", method=request.method, path=f"/v1/{path}")
 
     try:
         # Check if client wants streaming (common for chat completions)
+        logger.info("Reading request body")
         body = await request.body()
         is_streaming = b'"stream":true' in body or b'"stream": true' in body
+        logger.info("Body read", is_streaming=is_streaming)
 
         if is_streaming:
             # Stream response
@@ -64,8 +70,10 @@ async def proxy_to_upstream(request: Request, path: str):
                 media_type="text/event-stream",
             )
         else:
+            logger.info("Calling forward_request")
             # Non-streaming response
             response = await _proxy.forward_request(request, f"/v1/{path}", token)
+            logger.info("Got response from forward_request", status=response.status_code if hasattr(response, 'status_code') else 'unknown')
             return response
 
     finally:

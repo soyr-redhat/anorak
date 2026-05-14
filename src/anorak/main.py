@@ -1,16 +1,17 @@
 """Anorak - Split-key API security proxy for LLM APIs."""
 
 from contextlib import asynccontextmanager
+from typing import Callable
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from anorak.api.routes import admin, health, proxy
 from anorak.config.settings import settings
 from anorak.core.crypto.handshake import create_handshake_manager
 from anorak.core.crypto.redis_storage import RedisShardStorage
-from anorak.core.rotation.engine import RotationEngine
 from anorak.core.proxy.middleware import AnorakProxyMiddleware, set_redis_storage
 from anorak.core.proxy.passthrough import ProxyPassthrough
 from anorak.exceptions.exceptions import AnorakException
@@ -28,13 +29,12 @@ _redis_client: aioredis.Redis = None
 _handshake_manager = None
 _metrics_tracker = None
 _redis_storage: RedisShardStorage = None
-_rotation_engine: RotationEngine = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
-    global _proxy_passthrough, _redis_client, _handshake_manager, _metrics_tracker, _redis_storage, _rotation_engine
+    global _proxy_passthrough, _redis_client, _handshake_manager, _metrics_tracker, _redis_storage
 
     logger.info("Starting Anorak proxy server")
 
@@ -64,22 +64,13 @@ async def lifespan(app: FastAPI):
     logger.info("Metrics tracker initialized")
 
     # Initialize Redis shard storage (if Redis available)
-    if _redis_client and settings.ROTATION_ENABLED:
+    if _redis_client:
         _redis_storage = RedisShardStorage(_redis_client)
         set_redis_storage(_redis_storage)
+        admin.set_redis_storage(_redis_storage)
         logger.info("Redis shard storage initialized")
-
-        # Initialize rotation engine
-        _rotation_engine = RotationEngine(
-            redis_storage=_redis_storage,
-            check_interval_minutes=60,  # Check every hour
-            time_window_hours=settings.SHARD_3_TIME_WINDOW_HOURS,
-        )
-        admin.set_rotation_engine(_rotation_engine)
-        await _rotation_engine.start()
-        logger.info("Rotation engine started")
     else:
-        logger.info("Rotation engine disabled (Redis unavailable or rotation disabled)")
+        logger.warning("Redis unavailable - shard storage disabled")
 
     # Initialize proxy passthrough
     _proxy_passthrough = ProxyPassthrough(
@@ -88,19 +79,51 @@ async def lifespan(app: FastAPI):
     proxy.set_proxy(_proxy_passthrough)
     logger.info("Proxy passthrough initialized", upstream_url=settings.UPSTREAM_API_URL)
 
+    # Pre-warm token caches on startup (so first request doesn't timeout)
+    from anorak.core.proxy.middleware import reconstruct_internal_api_key, reconstruct_maas_token
+    logger.info("Pre-warming token caches (this may take 20-60 seconds)...")
+    try:
+        # Warm internal API key cache
+        await reconstruct_internal_api_key()
+        logger.info("Internal API key cache pre-warmed")
+
+        # Warm MaaS token cache
+        await reconstruct_maas_token()
+        logger.info("MaaS token cache pre-warmed")
+
+        logger.info("All token caches pre-warmed successfully")
+    except Exception as e:
+        logger.warning("Failed to pre-warm token caches", error=str(e))
+
     yield
 
     # Cleanup
     logger.info("Shutting down Anorak proxy server")
-
-    if _rotation_engine:
-        await _rotation_engine.stop()
 
     if _proxy_passthrough:
         await _proxy_passthrough.close()
 
     if _redis_client:
         await _redis_client.close()
+
+
+# Lazy-loading middleware wrapper
+class LazyAnorakMiddleware(BaseHTTPMiddleware):
+    """Lazy-loading wrapper that gets dependencies from globals."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Get dependencies from globals at request time
+        if _handshake_manager is None or _metrics_tracker is None:
+            # Dependencies not ready yet, just pass through
+            return await call_next(request)
+
+        # Create middleware instance with dependencies and dispatch
+        middleware = AnorakProxyMiddleware(
+            app=self.app,
+            handshake_manager=_handshake_manager,
+            metrics_tracker=_metrics_tracker,
+        )
+        return await middleware.dispatch(request, call_next)
 
 
 # Create FastAPI application
@@ -111,18 +134,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-# Add middleware
-@app.on_event("startup")
-async def add_middleware():
-    """Add middleware after initialization."""
-    if _handshake_manager and _metrics_tracker:
-        app.add_middleware(
-            AnorakProxyMiddleware,
-            handshake_manager=_handshake_manager,
-            metrics_tracker=_metrics_tracker,
-        )
-        logger.info("Proxy middleware added")
+# Add lazy middleware (before routes are added)
+app.add_middleware(LazyAnorakMiddleware)
 
 
 # Exception handler

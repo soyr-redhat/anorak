@@ -227,6 +227,68 @@ class ShardStorage:
         return encrypt_shard(shard, self.encryption_key)
 
 
+def split_and_encrypt_token(
+    token: str,
+    threshold: int = 3,
+    total_shards: int = 3,
+) -> dict:
+    """
+    Split a token into shards and encrypt them.
+
+    Args:
+        token: Token to split
+        threshold: Minimum shards needed for reconstruction
+        total_shards: Total number of shards to create
+
+    Returns:
+        Dict with encrypted shards and keys
+    """
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    import base64
+    from cryptography.fernet import Fernet
+
+    # Split token using Shamir
+    manager = ShardManager(threshold=threshold, total_shards=total_shards)
+    shards = manager.split_token(token)
+
+    # Generate encryption key for shards 1 and 2
+    encryption_key = Fernet.generate_key().decode()
+
+    # Generate master secret for shard 3
+    master_secret = secrets.token_hex(32)
+
+    # Derive time-based encryption key for shard 3
+    now = datetime.datetime.utcnow()
+    window_id = int(now.timestamp() // (24 * 3600))  # 24-hour window
+    time_info = f"anorak-shard3-encrypt-{window_id}".encode()
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=time_info,
+    )
+    time_key_bytes = hkdf.derive(master_secret.encode())
+    time_encryption_key = base64.urlsafe_b64encode(time_key_bytes).decode()
+
+    # Encrypt shards
+    storage = ShardStorage(encryption_key)
+    shard1_encrypted = storage.save_shard_encrypted(shards[0].shard_value)
+    shard2_encrypted = storage.save_shard_encrypted(shards[1].shard_value)
+
+    time_storage = ShardStorage(time_encryption_key)
+    shard3_encrypted = time_storage.save_shard_encrypted(shards[2].shard_value)
+
+    return {
+        "shard1_encrypted": shard1_encrypted,
+        "shard2_encrypted": shard2_encrypted,
+        "shard3_encrypted": shard3_encrypted,
+        "encryption_key": encryption_key,
+        "master_secret": master_secret,
+    }
+
+
 def reconstruct_token_from_env(
     shard1_encrypted: str,
     shard2_encrypted: str,
